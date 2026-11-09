@@ -16,6 +16,7 @@ AI builders ship fast, but they rarely finish the security work. Every item belo
 - [ ] **Insert and update policies have a `with check`.** Without it, a user may create rows for someone else or move a row to another owner.
 - [ ] **Foreign keys are checked too.** A user should not be able to attach their record to another user's record (for example, an order pointing to someone else's customer). Use `exists (...)` checks in `with check`.
 - [ ] **Users cannot edit privileged columns.** If users can update their own profile row, make sure they cannot change `role`, `plan`, `balance` or similar fields. Use column privileges or a trigger.
+- [ ] **Roles are not read from `user_metadata`.** Users can edit their own `raw_user_meta_data` from the browser, so a policy like `auth.jwt() -> 'user_metadata' ->> 'role' = 'admin'` lets anyone make themselves admin. Keep roles in a table users cannot write to, or in `app_metadata`.
 
 Find tables without RLS:
 
@@ -37,7 +38,7 @@ order by tablename;
 Lock privileged columns (example):
 
 ```sql
-revoke update on public.profiles from authenticated;
+revoke update on public.profiles from anon, authenticated;
 grant update (full_name, avatar_url) on public.profiles to authenticated;
 ```
 
@@ -47,11 +48,25 @@ grant update (full_name, avatar_url) on public.profiles to authenticated;
 - [ ] **`SECURITY DEFINER` functions are locked down.** They run with admin rights and bypass RLS. Pin the `search_path`, check ownership inside the function, and remove API access if only triggers use it.
 - [ ] **No admin function is callable by `anon`.** Functions in `public` can be called through `/rest/v1/rpc/<name>`.
 
+Find `SECURITY DEFINER` functions in `public`:
+
+```sql
+select p.proname, pg_get_function_identity_arguments(p.oid) as args
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.prosecdef;
+```
+
+Fix examples:
+
 ```sql
 create view public.my_view with (security_invoker = true) as
 select ...;
 
+-- After this, write table names with their schema inside the function (public.orders, not orders)
 alter function public.my_admin_fn(uuid) set search_path = '';
+
+-- Only if the app never calls it through supabase.rpc() (for example, trigger-only functions)
 revoke execute on function public.my_admin_fn(uuid) from public, anon, authenticated;
 ```
 
@@ -68,7 +83,7 @@ revoke execute on function public.my_admin_fn(uuid) from public, anon, authentic
 - [ ] **Never trust IDs from the request body.** If the client sends `notebook_id`, `order_id` or `file_path`, check that it belongs to the caller before using it with the service role. This is the most common serious bug in AI-built backends.
 - [ ] **Webhooks are verified.** Payment and automation webhooks (Stripe, Kiwify, n8n, etc.) must check a signature or a secret token. Otherwise anyone can send fake events.
 - [ ] **Callbacks are not public.** Endpoints that receive results from background jobs must require a secret.
-- [ ] **No personal data or secrets in logs.**
+- [ ] **No personal data or secrets in logs**, and error responses do not expose stack traces or database details.
 - [ ] **AI endpoints have limits.** Cap input size and rate-limit calls, or one user can run up your bill.
 
 ## 5. Storage
@@ -82,12 +97,13 @@ revoke execute on function public.my_admin_fn(uuid) from public, anon, authentic
 - [ ] **Sign-ups are disabled** if the app is internal or invite-only.
 - [ ] **Email confirmation is on** for public apps.
 - [ ] **Redirect URLs are restricted** to your own domains.
+- [ ] **Public sign-up has bot protection** (CAPTCHA) if anyone on the internet can create an account.
 
 ## 7. Frontend
 
 - [ ] **Role checks in React are only for the UI.** Hiding a button does not protect data. The database (RLS) must enforce it.
 - [ ] **Cached data is cleared on logout.** If you persist React Query or app state in `localStorage`, clear it on sign-out, or the next user on the same device may see it.
-- **Test it:** in staging, sign in as account A and open pages with private data. Sign out, then sign in as account B in the same browser tab, without reloading. Revisit the same pages and check that nothing from A appears, both in cached views and in new requests. *(Suggested by Adrian Korwel.)*
+  - **Test it:** in staging, sign in as account A and open pages with private data. Sign out, then sign in as account B in the same browser tab, without reloading. Revisit the same pages and check that nothing from A appears, both in cached views and in new requests. *(Suggested by Adrian Korwel.)*
 - [ ] **Sensitive data is not hard-coded** in the source (real financial data, customer lists, seed data). Everything in `src/` is shipped to the browser.
 - [ ] **HTML from users or AI is sanitized** before rendering (`dangerouslySetInnerHTML`, Markdown renderers).
 
@@ -97,6 +113,12 @@ revoke execute on function public.my_admin_fn(uuid) from public, anon, authentic
 - [ ] **Supabase Security Advisor** (Dashboard → Advisors) shows no warnings left unexplained.
 
 ---
+
+## Suggestions
+
+This checklist is a living document. If you think something is missing, open an issue.
+
+*Last updated: November 2026.*
 
 ## Need help?
 
