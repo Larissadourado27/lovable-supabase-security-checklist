@@ -87,6 +87,7 @@ revoke execute on function public.my_admin_fn(uuid) from public, anon, authentic
 
 - [ ] **Role checks in React are only for the UI.** Hiding a button does not protect data. The database (RLS) must enforce it.
 - [ ] **Cached data is cleared on logout.** If you persist React Query or app state in `localStorage`, clear it on sign-out, or the next user on the same device may see it.
+- **Test it:** in staging, sign in as account A and open pages with private data. Sign out, then sign in as account B in the same browser tab, without reloading. Revisit the same pages and check that nothing from A appears, both in cached views and in new requests. *(Suggested by Adrian Korwel.)*
 - [ ] **Sensitive data is not hard-coded** in the source (real financial data, customer lists, seed data). Everything in `src/` is shipped to the browser.
 - [ ] **HTML from users or AI is sanitized** before rendering (`dangerouslySetInnerHTML`, Markdown renderers).
 
